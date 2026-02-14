@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Runner - Endless Adventure</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0a0a0c;
+            font-family: 'Orbitron', sans-serif;
+            touch-action: manipulation;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #1a1a2e 0%, #16213e 100%);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.8);
+        }
+
+        #score-board {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 24px;
+            pointer-events: none;
+        }
+
+        #high-score {
+            position: absolute;
+            top: 50px;
+            left: 20px;
+            font-size: 16px;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+
+        .menu {
+            background: rgba(10, 10, 15, 0.9);
+            padding: 2rem;
+            border-radius: 1rem;
+            border: 2px solid #00d4ff;
+            text-align: center;
+            pointer-events: auto;
+            transition: opacity 0.3s ease;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .btn {
+            background: #00d4ff;
+            color: #0a0a0c;
+            padding: 10px 30px;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px #00d4ff;
+        }
+
+        .instructions {
+            margin-top: 15px;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="score-board">SCORE: 0</div>
+    <div id="high-score">BEST: 0</div>
+
+    <div class="ui-overlay">
+        <!-- Start Screen -->
+        <div id="start-menu" class="menu">
+            <h1 class="text-4xl font-bold mb-4">NEON RUNNER</h1>
+            <p>Raste ke rukawaton se bache!</p>
+            <button class="btn" onclick="startGame()">Start Game</button>
+            <div class="instructions">
+                SPACE ya TAP se JUMP karein<br>
+                Double Jump ke liye do baar dabayein
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over" class="menu hidden">
+            <h2 class="text-3xl font-bold mb-2 text-red-500">SYSTEM CRASH</h2>
+            <p id="final-score" class="text-xl mb-4">Final Score: 0</p>
+            <button class="btn" onclick="startGame()">Restart</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score-board');
+    const highScoreElement = document.getElementById('high-score');
+    const startMenu = document.getElementById('start-menu');
+    const gameOverMenu = document.getElementById('game-over');
+    const finalScoreText = document.getElementById('final-score');
+
+    // Game Constants
+    const GRAVITY = 0.6;
+    const JUMP_FORCE = -12;
+    const GROUND_HEIGHT = 80;
+    const INITIAL_SPEED = 5; // Shuruati speed
+    const SPEED_INCREMENT = 0.15; // Har score ke baad badhne wali speed
+    const MAX_SPEED = 15; // Maximum speed limit
+
+    // Game State
+    let isGameRunning = false;
+    let score = 0;
+    let highScore = localStorage.getItem('neonRunnerHighScore') || 0;
+    let gameSpeed = INITIAL_SPEED;
+    let animationId;
+    let frameCount = 0;
+
+    // Responsive Canvas
+    function resize() {
+        canvas.width = Math.min(window.innerWidth, 800);
+        canvas.height = Math.min(window.innerHeight * 0.6, 400);
+        highScoreElement.innerText = `BEST: ${highScore}`;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Player Object
+    const player = {
+        x: 50,
+        y: 0,
+        width: 30, 
+        height: 50, 
+        dy: 0,
+        jumpCount: 0,
+        maxJumps: 2,
+        color: '#00d4ff',
+        onGround: false,
+
+        update() {
+            this.dy += GRAVITY;
+            this.y += this.dy;
+
+            const groundY = canvas.height - GROUND_HEIGHT - this.height;
+            if (this.y > groundY) {
+                this.y = groundY;
+                this.dy = 0;
+                this.jumpCount = 0;
+                this.onGround = true;
+            } else {
+                this.onGround = false;
+            }
+
+            this.draw();
+        },
+
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = this.color;
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+
+            const cx = this.x + this.width / 2;
+            const cy = this.y;
+            
+            // Animation speed ab game speed par depend karti hai
+            const runCycle = (frameCount * (0.03 * gameSpeed)) % (Math.PI * 2);
+            const legSwing = Math.sin(runCycle) * 15;
+            const armSwing = Math.cos(runCycle) * 10;
+
+            const legPos = !this.onGround ? 15 : legSwing;
+            const armPos = !this.onGround ? -15 : armSwing;
+
+            // Head
+            ctx.beginPath();
+            ctx.arc(cx, cy + 5, 5, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Body
+            ctx.beginPath();
+            ctx.moveTo(cx, cy + 10);
+            ctx.lineTo(cx, cy + 30);
+            ctx.stroke();
+
+            // Arms
+            ctx.beginPath();
+            ctx.moveTo(cx, cy + 15);
+            ctx.lineTo(cx + armPos, cy + 25);
+            ctx.moveTo(cx, cy + 15);
+            ctx.lineTo(cx - armPos, cy + 25); 
+            ctx.stroke();
+
+            // Legs
+            ctx.beginPath();
+            ctx.moveTo(cx, cy + 30);
+            ctx.lineTo(cx + legPos, cy + 50);
+            ctx.moveTo(cx, cy + 30);
+            ctx.lineTo(cx - legPos, cy + 50);
+            ctx.stroke();
+
+            ctx.restore();
+        },
+
+        jump() {
+            if (this.jumpCount < this.maxJumps) {
+                this.dy = JUMP_FORCE;
+                this.jumpCount++;
+            }
+        }
+    };
+
+    // Obstacle Logic
+    let obstacles = [];
+    class Obstacle {
+        constructor() {
+            this.width = 30 + Math.random() * 20;
+            this.height = 40 + Math.random() * 50;
+            this.x = canvas.width;
+            this.y = canvas.height - GROUND_HEIGHT - this.height;
+            this.color = '#ff0055';
+        }
+
+        update() {
+            this.x -= gameSpeed;
+            this.draw();
+        }
+
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = this.color;
+            ctx.strokeStyle = this.color;
+            ctx.fillStyle = this.color;
+            ctx.lineWidth = 2;
+
+            const cx = this.x + this.width / 2;
+            const bottomY = this.y + this.height;
+
+            // Trunk
+            ctx.fillRect(cx - 3, bottomY - 10, 6, 10);
+
+            // Foliage
+            for (let i = 0; i < 3; i++) {
+                const layerY = bottomY - 10 - (i * (this.height * 0.25));
+                const layerWidth = this.width * (1 - (i * 0.25));
+                const layerHeight = this.height * 0.4;
+
+                ctx.beginPath();
+                ctx.moveTo(cx, layerY - layerHeight);
+                ctx.lineTo(cx - layerWidth/2, layerY);
+                ctx.lineTo(cx + layerWidth/2, layerY);
+                ctx.closePath();
+                ctx.stroke();
+                
+                ctx.globalAlpha = 0.2;
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+
+            ctx.restore();
+        }
+    }
+
+    let stars = [];
+    function createStars() {
+        stars = [];
+        for (let i = 0; i < 50; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2,
+                speed: Math.random() * 0.5 + 0.1
+            });
+        }
+    }
+
+    function updateStars() {
+        ctx.fillStyle = '#ffffff';
+        stars.forEach(star => {
+            // Stars ki speed bhi game speed se thodi influence hoti hai
+            star.x -= star.speed * (gameSpeed / 5);
+            if (star.x < 0) star.x = canvas.width;
+            ctx.fillRect(star.x, star.y, star.size, star.size);
+        });
+    }
+
+    let obstacleTimeout;
+    function spawnObstacle() {
+        if (!isGameRunning) return;
+        
+        // Speed badhne par obstacles jaldi aayenge
+        const baseDelay = 1500;
+        const randomDelay = Math.random() * 1500;
+        const nextSpawn = (baseDelay + randomDelay) / (gameSpeed / INITIAL_SPEED);
+        
+        obstacles.push(new Obstacle());
+        
+        obstacleTimeout = setTimeout(spawnObstacle, Math.max(600, nextSpawn));
+    }
+
+    function checkCollision(p, o) {
+        // Collision detection with a small padding for better gameplay feel
+        const padding = 5;
+        return p.x + padding < o.x + o.width &&
+               p.x + p.width - padding > o.x &&
+               p.y + padding < o.y + o.height &&
+               p.y + p.height - padding > o.y;
+    }
+
+    function updateGame() {
+        if (!isGameRunning) return;
+
+        frameCount++;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        updateStars();
+        
+        // Ground draw
+        ctx.fillStyle = '#16213e';
+        ctx.fillRect(0, canvas.height - GROUND_HEIGHT, canvas.width, GROUND_HEIGHT);
+        ctx.strokeStyle = '#00d4ff';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height - GROUND_HEIGHT);
+        ctx.lineTo(canvas.width, canvas.height - GROUND_HEIGHT);
+        ctx.stroke();
+
+        player.update();
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            obstacles[i].update();
+
+            if (checkCollision(player, obstacles[i])) {
+                endGame();
+                return;
+            }
+
+            if (obstacles[i].x + obstacles[i].width < 0) {
+                obstacles.splice(i, 1);
+                score++;
+                scoreElement.innerText = `SCORE: ${score}`;
+                
+                // Har score par speed badhaein
+                if (gameSpeed < MAX_SPEED) {
+                    gameSpeed += SPEED_INCREMENT;
+                }
+            }
+        }
+
+        animationId = requestAnimationFrame(updateGame);
+    }
+
+    function startGame() {
+        if (obstacleTimeout) clearTimeout(obstacleTimeout);
+        
+        isGameRunning = true;
+        score = 0;
+        frameCount = 0;
+        gameSpeed = INITIAL_SPEED;
+        obstacles = [];
+        player.y = canvas.height - GROUND_HEIGHT - player.height;
+        player.dy = 0;
+        
+        scoreElement.innerText = `SCORE: 0`;
+        startMenu.classList.add('hidden');
+        gameOverMenu.classList.add('hidden');
+        
+        createStars();
+        spawnObstacle();
+        updateGame();
+    }
+
+    function endGame() {
+        isGameRunning = false;
+        cancelAnimationFrame(animationId);
+        if (obstacleTimeout) clearTimeout(obstacleTimeout);
+        
+        if (score > highScore) {
+            highScore = score;
+            localStorage.setItem('neonRunnerHighScore', highScore);
+            highScoreElement.innerText = `BEST: ${highScore}`;
+        }
+
+        finalScoreText.innerText = `Final Score: ${score}`;
+        gameOverMenu.classList.remove('hidden');
+    }
+
+    function handleInput(e) {
+        if (!isGameRunning) return;
+        if (e.code === 'Space' || e.type === 'touchstart' || e.type === 'mousedown') {
+            player.jump();
+            if (e.cancelable && e.type !== 'mousedown') e.preventDefault();
+        }
+    }
+
+    window.addEventListener('keydown', handleInput);
+    window.addEventListener('touchstart', handleInput, { passive: false });
+    window.addEventListener('mousedown', handleInput);
+
+    // Initial draw
+    createStars();
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    updateStars();
+
+</script>
+</body>
+</html>
